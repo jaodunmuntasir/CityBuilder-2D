@@ -1,0 +1,75 @@
+stages:
+  - build
+  - test
+  - deploy
+
+image: ubuntu:18.04
+
+# Cache Maven dependencies to speed up builds
+cache:
+  paths:
+    - .m2/repository
+
+variables:
+  MAVEN_OPTS: >-
+    -Dhttps.protocols=TLSv1.2
+    -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository
+    -Dorg.slf4j.simpleLogger.showDateTime=true
+    -Djava.awt.headless=true
+  MAVEN_CLI_OPTS: >-
+    --batch-mode
+    --errors
+    --fail-at-end
+    --show-version
+    -DinstallAtEnd=true
+    -DdeployAtEnd=true
+
+before_script:
+  - apt-get update
+  - apt-get install -y wget curl xvfb
+  - wget https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+  - apt-get install -y ./jdk-21_linux-x64_bin.deb
+  - mkdir -p /usr/lib/jvm
+  - mv /usr/lib/jvm/jdk-21-oracle-x64 /usr/lib/jvm/jdk-21
+  - update-alternatives --install /usr/bin/java java /usr/lib/jvm/jdk-21/bin/java 1
+  - update-alternatives --install /usr/bin/javac javac /usr/lib/jvm/jdk-21/bin/javac 1
+  - wget https://archive.apache.org/dist/maven/maven-3/3.8.6/binaries/apache-maven-3.8.6-bin.tar.gz
+  - tar xzvf apache-maven-3.8.6-bin.tar.gz -C /opt
+  - ln -s /opt/apache-maven-3.8.6/bin/mvn /usr/bin/mvn
+
+# Build Stage
+build:
+  stage: build
+  script:
+    - echo "Building the project..."
+    - mvn $MAVEN_CLI_OPTS clean compile
+  artifacts:
+    paths:
+      - target/
+
+# Test Stage
+test:
+  stage: test
+  script:
+    - echo "Running unit tests..."
+    - Xvfb :99 -screen 0 1024x768x24 &
+    - export DISPLAY=:99
+    - mvn $MAVEN_CLI_OPTS test
+  artifacts:
+    reports:
+      junit: target/surefire-reports/TEST-*.xml
+    paths:
+      - target/surefire-reports/
+
+# Deploy Stage
+deploy:
+  stage: deploy
+  script:
+    - echo "Deploying the project..."
+    - mvn $MAVEN_CLI_OPTS clean install
+  artifacts:
+    paths:
+      - target/
+  only:
+    - main
+    - master
